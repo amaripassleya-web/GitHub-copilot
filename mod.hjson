@@ -1,0 +1,8 @@
+name: "copilot-assistant"
+displayName: "AI Copilot Assistant"
+author: "cd cat"
+description: "Adds an in-game AI assistant window to ask questions about Mindustry, recipes, and strategies."
+version: "1.0"
+minGameVersion: "159.7"
+hidden: false
+  
