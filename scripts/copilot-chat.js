@@ -28,6 +28,31 @@ Events.on(ClientLoadEvent, () => {
         });
     }).width(80);
 
+    // Quick link buttons for Copilot and Mindustry
+    content.row();
+    content.table(table => {
+        table.defaults().pad(4);
+        table.button("Open Copilot", () => {
+            try {
+                Core.app.openURI("https://github.com/features/copilot");
+            } catch (e) {
+                // Fallback: show link in chat
+                conversationHistory += "\n\n[accent]Link:[] https://github.com/features/copilot";
+                chatLabel.setText(conversationHistory);
+            }
+        }).width(140);
+
+        table.button("Open Mindustry", () => {
+            try {
+                Core.app.openURI("https://github.com/Anuken/Mindustry");
+            } catch (e) {
+                // Fallback: show link in chat
+                conversationHistory += "\n\n[accent]Link:[] https://github.com/Anuken/Mindustry";
+                chatLabel.setText(conversationHistory);
+            }
+        }).width(140);
+    }).left();
+
     // Add Copilot Button to top-right UI
     Vars.ui.hudGroup.fill(cons(table => {
         table.top().right();
@@ -71,4 +96,3 @@ function queryGitHubCopilot(prompt, callback) {
             }
         });
           }
-          
