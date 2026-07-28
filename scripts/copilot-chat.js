@@ -1,3 +1,7 @@
+// Mindustry Copilot chat UI
+// NOTE: Do NOT commit real tokens to your repository. This script persists endpoint/token
+// to Core.settings on the local machine only.
+
 Events.on(ClientLoadEvent, () => {
     // Create the Copilot Dialog Window
     let dialog = new BaseDialog("GitHub Copilot");
@@ -13,10 +17,12 @@ Events.on(ClientLoadEvent, () => {
     // Input Box
     let inputField = content.field("", text => {}).width(300).get();
     
+    // Load persisted settings (empty by default)
+    let assistantEndpoint = (Core.settings && Core.settings.getString) ? Core.settings.getString("copilot.endpoint", "") : "";
+    let assistantToken = (Core.settings && Core.settings.getString) ? Core.settings.getString("copilot.token", "") : "";
+
     // Link toggle and assistant configuration
     let linkEnabled = false;
-    let assistantEndpoint = "https://models.inference.ai.azure.com/chat/completions"; // default (placeholder)
-    let assistantToken = "YOUR_GITHUB_TOKEN_HERE"; // default placeholder
 
     // Small helper to show link state
     function updateLinkButtonText(btn) {
@@ -33,7 +39,10 @@ Events.on(ClientLoadEvent, () => {
 
         // Endpoint field (compact)
         table.add("Endpoint:").left();
-        let endpointField = table.field(assistantEndpoint, v => { assistantEndpoint = v; }).width(260).get();
+        let endpointField = table.field(assistantEndpoint, v => { 
+            assistantEndpoint = v.trim();
+            if (Core.settings && Core.settings.put) Core.settings.put("copilot.endpoint", assistantEndpoint);
+        }).width(260).get();
     }).left();
 
     content.row();
@@ -42,31 +51,48 @@ Events.on(ClientLoadEvent, () => {
     content.table(table => {
         table.defaults().pad(4);
         table.add("Token:").left();
-        let tokenField = table.field(assistantToken, v => { assistantToken = v; }).width(420).get();
+        let tokenField = table.field(assistantToken, v => { 
+            assistantToken = v;
+            if (Core.settings && Core.settings.put) Core.settings.put("copilot.token", assistantToken);
+        }).width(420).get();
     }).left();
 
     content.row();
 
-    // Send Button
-    content.button("Ask", () => {
-        let question = inputField.text.trim();
-        if (question.length == 0) return;
+    // Send and Test Buttons
+    content.table(table => {
+        table.defaults().pad(4);
 
-        // Optionally include game context when Link is ON
-        let finalPrompt = question;
-        if (linkEnabled) {
-            finalPrompt = getGameContext() + "\n\nPlayer question: " + question;
-        }
+        table.button("Ask", () => {
+            let question = inputField.text.trim();
+            if (question.length == 0) return;
 
-        conversationHistory += "\n\n[accent]You:[] " + question;
-        chatLabel.setText(conversationHistory + "\n\n[cyan]GitHub Copilot:[] Thinking...");
-        inputField.setText("");
+            // Optionally include game context when Link is ON
+            let finalPrompt = question;
+            if (linkEnabled) {
+                finalPrompt = getGameContext() + "\n\nPlayer question: " + question;
+            }
 
-        queryAssistant(finalPrompt, assistantEndpoint, assistantToken, (reply) => {
-            conversationHistory += "\n\n[cyan]GitHub Copilot:[] " + reply;
-            chatLabel.setText(conversationHistory);
-        });
-    }).width(80);
+            conversationHistory += "\n\n[accent]You:[] " + question;
+            chatLabel.setText(conversationHistory + "\n\n[cyan]GitHub Copilot:[] Thinking...");
+            inputField.setText("");
+
+            queryAssistant(finalPrompt, assistantEndpoint, assistantToken, (reply) => {
+                conversationHistory += "\n\n[cyan]GitHub Copilot:[] " + reply;
+                chatLabel.setText(conversationHistory);
+            });
+        }).width(80);
+
+        table.button("Test", () => {
+            // Quick connectivity test -- small friendly prompt
+            let prompt = "Ping. Please reply with a short confirmation.";
+            chatLabel.setText(conversationHistory + "\n\n[cyan]GitHub Copilot:[] Testing endpoint...");
+            queryAssistant(prompt, assistantEndpoint, assistantToken, (reply) => {
+                conversationHistory += "\n\n[cyan]GitHub Copilot:[] Test result: " + reply;
+                chatLabel.setText(conversationHistory);
+            });
+        }).width(80);
+    }).left();
 
     // Quick link buttons for Copilot and Mindustry
     content.row();
@@ -166,40 +192,44 @@ function queryAssistant(prompt, endpoint, token, callback) {
     });
 
     // Use Mindustry's Http helper
-    Http.post(endpoint, payload)
-        .header("Content-Type", "application/json")
-        .header("Authorization", token && token.length ? ("Bearer " + token) : "")
-        .error(err => {
+    try {
+        let req = Http.post(endpoint, payload).header("Content-Type", "application/json");
+        if (token && token.length) req.header("Authorization", "Bearer " + token);
+
+        req.error(err => {
             callback("Error connecting to assistant endpoint. Check endpoint URL and token.\n" + err);
-        })
-        .submit(response => {
+        }).submit(response => {
             try {
-                // Try to parse different possible response shapes safely
                 let txt = response.getResultAsString();
                 let json = null;
                 try { json = JSON.parse(txt); } catch (e) { json = null; }
 
-                if (json && json.choices && json.choices.length > 0 && json.choices[0].message) {
-                    callback(json.choices[0].message.content);
-                    return;
+                // OpenAI-style ChatCompletions
+                if (json && json.choices && json.choices.length > 0) {
+                    let c0 = json.choices[0];
+                    if (c0.message && c0.message.content) {
+                        callback(c0.message.content);
+                        return;
+                    }
+                    if (typeof c0.text === 'string') {
+                        callback(c0.text);
+                        return;
+                    }
                 }
 
-                // OpenAI-style single-field
-                if (json && json.choices && json.choices.length > 0 && json.choices[0].text) {
-                    callback(json.choices[0].text);
-                    return;
-                }
-
-                // If the endpoint returns a plain string or a "reply" field
+                // Some proxies return { reply: "..." }
                 if (json && typeof json.reply === 'string') {
                     callback(json.reply);
                     return;
                 }
 
-                // Fallback: send raw body
+                // Fallback: raw body
                 callback(txt || "(empty response)");
             } catch(e) {
                 callback("Failed to read response from assistant endpoint.");
             }
         });
-}
+    } catch(e) {
+        callback("Failed to send request to assistant endpoint: " + e);
+    }
+        }                
