@@ -1,4 +1,4 @@
- (function() {
+(function() {
   const assistantName = "Mindustry Copilot";
   const quickTips = [
     "Start by mining copper and lead, then expand once you have steady power.",
